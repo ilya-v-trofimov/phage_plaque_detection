@@ -10,6 +10,7 @@ mock = "*"
 [packages]
 imutils = "*"
 opencv-python = "*"
+numpy = "*"
 
 [requires]
 python_version = "3.6"
