@@ -79,10 +79,12 @@ def get_image_paths(image, directory):
     return images
 
 
-def write_images(output_image, binary_image, high_contrast_image, image_path):
-    cv2.imwrite(f'./out/out-{os.path.split(image_path)[1]}', output_image)
-    cv2.imwrite(f'./out/contrast-{os.path.split(image_path)[1]}', high_contrast_image)
-    cv2.imwrite(f'./out/binary-{os.path.split(image_path)[1]}', binary_image)
+def write_images(out_dir, output_image, binary_image, high_contrast_image, image_path):
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    cv2.imwrite(f'{out_dir}/out-{os.path.split(image_path)[1]}', output_image)
+    cv2.imwrite(f'{out_dir}/contrast-{os.path.split(image_path)[1]}', high_contrast_image)
+    cv2.imwrite(f'{out_dir}/binary-{os.path.split(image_path)[1]}', binary_image)
 
 
 def write_data(image_path, contours):
@@ -105,8 +107,9 @@ def main():
         output = clr_high_contrast.copy()
         draw_contours(output, contours)
 
-        write_images(output, binary_image, high_contrast, image_path)
-        write_data(image_path, contours)
+        out_dir = './out'
+        write_images(out_dir, output, binary_image, high_contrast, image_path)
+        #write_data(image_path, contours)  #todo
         # cv2.imshow("Binary image", binary_image)
         # cv2.imshow("Image", np.hstack((output, clr_high_contrast)))
         # cv2.waitKey(0)
