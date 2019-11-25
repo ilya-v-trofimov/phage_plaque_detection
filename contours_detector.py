@@ -94,7 +94,7 @@ def write_data(out_dir, image_path, green_df, red_df, other_df):
 def write_one_data(out_dir, image_path, prefix, df):
     image_file_name = os.path.split(image_path)[1]
     image_name = os.path.splitext(image_file_name)[0]
-    df.to_csv(path=f'{out_dir}/data-{prefix}-{image_name}.csv')
+    df.to_csv(path_or_buf=f'{out_dir}/data-{prefix}-{image_name}.csv', columns=['INDEX_COL','AREA','PERIMETER','ENCL_CENTER','ENCL_DIAMETER'])
 
 
 def calc_area_diff(contour_df):
@@ -121,8 +121,11 @@ def filter_contours(contours):
     filter_green = wo_other_df.apply(lambda x: calc_area_diff(x) < 0.21, axis=1)
     green_df = wo_other_df[filter_green]
     red_df = wo_other_df[~filter_green]
+    green_df.reset_index()
     green_df['INDEX_COL'] = green_df.index
+    red_df.reset_index()
     red_df['INDEX_COL'] = red_df.index
+    other_df.reset_index()
     other_df['INDEX_COL'] = other_df.index
     return green_df, red_df, other_df
 
