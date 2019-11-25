@@ -50,8 +50,8 @@ def draw_contours(image, green_df, red_df, other_df):
         draw_one_contour(image_copy, green, (0, 255, 0))
     for index, red in red_df.iterrows():
         draw_one_contour(image_copy, red, (0, 0, 255))
-    for index, other in other_df.iterrows():
-        draw_one_contour(image_copy, other, (150, 150, 150))
+    # for index, other in other_df.iterrows():
+    #     draw_one_contour(image_copy, other, (150, 150, 150))
     return image_copy
 
 
@@ -88,7 +88,7 @@ def write_images(out_dir, output_image, binary_image, high_contrast_image, image
 def write_data(out_dir, image_path, green_df, red_df, other_df):
     write_one_data(out_dir, image_path, 'green', green_df)
     write_one_data(out_dir, image_path, 'red', red_df)
-    write_one_data(out_dir, image_path, 'other', other_df)
+    #write_one_data(out_dir, image_path, 'other', other_df)
 
 
 def write_one_data(out_dir, image_path, prefix, df):
