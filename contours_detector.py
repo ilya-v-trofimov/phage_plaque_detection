@@ -3,6 +3,21 @@ import imutils
 import cv2
 import numpy as np
 import os
+import pandas as pd
+
+out_dir_path = './out'
+
+
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-i", "--image", required=False,
+                    help="path to the input image")
+    ap.add_argument("-d", "--directory", required=False,
+                    help="path to the directory with input images")
+    args = vars(ap.parse_args())
+    if 'image' not in args and 'directory' not in args:
+        raise Exception('Either -i or -d flags must be provided!')
+    return args
 
 
 def adjust_gamma(image, gamma=1.0):
@@ -12,18 +27,6 @@ def adjust_gamma(image, gamma=1.0):
     table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
 
     return cv2.LUT(image, table)
-
-
-def draw_one_contour(image, c, area, color):
-    m = cv2.moments(c)
-    if m["m00"] != 0:
-        cx = int((m["m10"] / m["m00"]))
-        cy = int((m["m01"] / m["m00"]))
-    else:
-        cx = 0
-        cy = 0
-    cv2.drawContours(image, [c], -1, color, 1)
-    cv2.putText(image, f"{area}", (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
 def process_image(image):
@@ -41,30 +44,27 @@ def get_contours(binary_image):
     return imutils.grab_contours(contours)
 
 
-def draw_contours(image, contours):
-    for c in contours:
-        hull = cv2.convexHull(c)
-        area = cv2.contourArea(hull)
-        if 200 < area < 100000:
-            _, radius = cv2.minEnclosingCircle(hull)
-            encl_area = 3.1415 * radius * radius
-            area_diff = abs(1 - area / encl_area)
-            if area_diff < 0.21:
-                draw_one_contour(image, hull, area, (0, 255, 0))  # GREEN
-            else:
-                draw_one_contour(image, hull, area, (0, 0, 255))  # RED
+def draw_contours(image, green_df, red_df, other_df):
+    image_copy = image.copy()
+    for index, green in green_df.iterrows():
+        draw_one_contour(image_copy, green, (0, 255, 0))
+    for index, red in red_df.iterrows():
+        draw_one_contour(image_copy, red, (0, 0, 255))
+    for index, other in other_df.iterrows():
+        draw_one_contour(image_copy, other, (150, 150, 150))
+    return image_copy
 
 
-def parse_args():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("-i", "--image", required=False,
-                    help="path to the input image")
-    ap.add_argument("-d", "--directory", required=False,
-                    help="path to the directory with input images")
-    args = vars(ap.parse_args())
-    if 'image' not in args and 'directory' not in args:
-        raise Exception('Either -i or -d flags must be provided!')
-    return args
+def draw_one_contour(image, c_df, color):
+    m = cv2.moments(c_df['CONTOURS'])
+    if m["m00"] != 0:
+        cx = int((m["m10"] / m["m00"]))
+        cy = int((m["m01"] / m["m00"]))
+    else:
+        cx = 0
+        cy = 0
+    cv2.drawContours(image, [c_df['HULL']], -1, color, 1)
+    cv2.putText(image, f"#{c_df['INDEX_COL']}:{c_df['AREA']}", (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
 def get_image_paths(image, directory):
@@ -80,20 +80,52 @@ def get_image_paths(image, directory):
 
 
 def write_images(out_dir, output_image, binary_image, high_contrast_image, image_path):
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
     cv2.imwrite(f'{out_dir}/out-{os.path.split(image_path)[1]}', output_image)
     cv2.imwrite(f'{out_dir}/contrast-{os.path.split(image_path)[1]}', high_contrast_image)
     cv2.imwrite(f'{out_dir}/binary-{os.path.split(image_path)[1]}', binary_image)
 
 
-def write_data(image_path, contours):
+def write_data(out_dir, image_path, green_df, red_df, other_df):
+    write_one_data(out_dir, image_path, 'green', green_df)
+    write_one_data(out_dir, image_path, 'red', red_df)
+    write_one_data(out_dir, image_path, 'other', other_df)
 
-    a = np.asarray([['CONTOUR_NUMBER', 2, 3]])
+
+def write_one_data(out_dir, image_path, prefix, df):
     image_file_name = os.path.split(image_path)[1]
     image_name = os.path.splitext(image_file_name)[0]
-    np.savetxt(f'data-{image_name}.csv', a, delimiter=",")
-#todo
+    df.to_csv(path=f'{out_dir}/data-{prefix}-{image_name}.csv')
+
+
+def calc_area_diff(contour_df):
+    encl_area = 3.1415 * (contour_df['ENCL_DIAMETER'] ** 2) / 4
+    return abs(1 - contour_df['AREA'] / encl_area)
+
+
+def prepare_df(contours):
+    df = pd.DataFrame(contours, columns=['CONTOURS'])
+    df['HULL'] = df.apply(lambda x: cv2.convexHull(x['CONTOURS']), axis=1)
+    df['AREA'] = df.apply(lambda x: cv2.contourArea(x['HULL']), axis=1)
+    encl_circle = df.apply(lambda x: cv2.minEnclosingCircle(x['HULL']), axis=1)
+    df['ENCL_CENTER'] = encl_circle.str[0]
+    df['ENCL_DIAMETER'] = encl_circle.str[1] * 2
+    df['PERIMETER'] = df.apply(lambda x: cv2.arcLength(x['HULL'], True), axis=1)
+    return df
+
+
+def filter_contours(contours):
+    df = prepare_df(contours)
+    filter_other = df.apply(lambda x: x['AREA'] < 100 or x['AREA'] > 100000, axis=1)
+    other_df = df[filter_other]
+    wo_other_df = df[~filter_other]
+    filter_green = wo_other_df.apply(lambda x: calc_area_diff(x) < 0.21, axis=1)
+    green_df = wo_other_df[filter_green]
+    red_df = wo_other_df[~filter_green]
+    green_df['INDEX_COL'] = green_df.index
+    red_df['INDEX_COL'] = red_df.index
+    other_df['INDEX_COL'] = other_df.index
+    return green_df, red_df, other_df
+
 
 def main():
     args = parse_args()
@@ -104,12 +136,13 @@ def main():
 
         binary_image, high_contrast, clr_high_contrast = process_image(image)
         contours = get_contours(binary_image)
-        output = clr_high_contrast.copy()
-        draw_contours(output, contours)
+        green_df, red_df, other_df = filter_contours(contours)
+        output = draw_contours(clr_high_contrast, green_df, red_df, other_df)
 
-        out_dir = './out'
-        write_images(out_dir, output, binary_image, high_contrast, image_path)
-        #write_data(image_path, contours)  #todo
+        if not os.path.exists(out_dir_path):
+            os.makedirs(out_dir_path)
+        write_images(out_dir_path, output, binary_image, high_contrast, image_path)
+        write_data(out_dir_path, image_path, green_df, red_df, other_df)
         # cv2.imshow("Binary image", binary_image)
         # cv2.imshow("Image", np.hstack((output, clr_high_contrast)))
         # cv2.waitKey(0)
