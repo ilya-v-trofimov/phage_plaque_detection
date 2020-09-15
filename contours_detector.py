@@ -227,6 +227,8 @@ def main():
 
         output = draw_contours(clr_high_contrast, green_df_copy, red_df, other_df)
 
+        if not os.path.exists(out_dir_path):
+            os.makedirs(out_dir_path)
         write_images(out_dir_path, output, binary_image, high_contrast, image_path)
         write_data(out_dir_path, image_path, green_df_copy, red_df, other_df)
 
