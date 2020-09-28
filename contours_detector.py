@@ -317,9 +317,10 @@ def main():
         green_df_copy['ENCL_DIAMETER_MM'] = green_df_copy.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
                                                                 axis=1)
 
-        green_df_copy['AREA_MM2'] = green_df_copy.apply(lambda x: f"{(math.pi * (((float(x['ENCL_DIAMETER_MM']))/2)**2.0)):.2f}",
+        #green_df_copy['AREA_MM2'] = green_df_copy.apply(lambda x: f"{(math.pi * (((float(x['ENCL_DIAMETER_MM']))/2)**2.0)):.2f}",
+        #                                                        axis=1)
+        green_df_copy['AREA_MM2'] = green_df_copy.apply(lambda x: f"{x['AREA_PXL'] * pxl_per_mm * pxl_per_mm:.2f}",
                                                                 axis=1)
-
 
         red_df_copy = red_df
         red_df_copy['ENCL_DIAMETER_MM'] = red_df.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
