@@ -4,9 +4,11 @@ import cv2
 import numpy as np
 import os
 import pandas as pd
-import math
+from PIL import Image, ImageStat, ImageEnhance
 
 out_dir_path = './out'
+small_plaques = False
+debug_mode = False
 
 
 def parse_args():
@@ -18,11 +20,17 @@ def parse_args():
     ap.add_argument("-p", "--plate_size", required=False,
                     help="plate size (mm)")
     ap.add_argument("-small", "--small_plaque", required=False,
-                    help="small plaques (Y/N)")
+                    help="for processing small plaques", action = "store_true")
+    ap.add_argument("-debug", "--debug", required=False, action = "store_true")
     args = vars(ap.parse_args())
     if 'image' not in args and 'directory' not in args:
         raise Exception('Either -i or -d flags must be provided!')
     return args
+
+
+def debug_info(file_path, img):
+    if debug_mode:
+        cv2.imwrite(file_path, img)
 
 
 def adjust_gamma(image, gamma=1.0):
@@ -34,59 +42,55 @@ def adjust_gamma(image, gamma=1.0):
     return cv2.LUT(image, table)
 
 
-def process_image(image, contrast, small_plaque=False):
+def process_image(image, contrast):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     cv2.imwrite("./test_pic_grey.jpg", gray)
 
-    # ET to get full circle plate
-    # plate_only = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY_INV)
-    # plate_only = cv2.threshold(gray, 65, 255, cv2.THRESH_BINARY_INV)
-    # cv2.imwrite("./test_pic_plate_only.jpg", plate_only)
-
-    # ET added
-    h = 5
-    if small_plaque:
+    # different values for different plaque sizes
+    h = 6
+    if small_plaques:
         h = 3
     gray = cv2.fastNlMeansDenoising(gray, h=h)
-    cv2.imwrite("./test_pic_grey_thresh_denoise.jpg", gray)
+    debug_info("./test_pic_grey_thresh_denoise.jpg", gray)
 
     # gray = unsharp_mask(gray)
     # cv2.imwrite("./test_pic_grey_unsharp.jpg", gray)
 
     blurred = cv2.GaussianBlur(gray, (7, 7), 0)
     # blurred = cv2.medianBlur(gray, 9)
-    cv2.imwrite("./test_pic_blur.jpg", blurred)
+    debug_info("./test_pic_blur.jpg", blurred)
 
     # ET point where it depends on a pic
     high_contrast = cv2.convertScaleAbs(blurred, alpha=contrast, beta=0)
-    cv2.imwrite("./test_pic_high.jpg", high_contrast)
+    debug_info("./test_pic_high.jpg", high_contrast)
 
     gamma_test = adjust_gamma(high_contrast, 7.1)
-    cv2.imwrite("./test_pic_green_gamma_0.jpg", gamma_test)
+    debug_info("./test_pic_green_gamma_0.jpg", gamma_test)
 
     high_contrast = adjust_gamma(high_contrast, 1.0)
-    cv2.imwrite("./test_pic_green_gamma.jpg", high_contrast)
+    debug_info("./test_pic_green_gamma.jpg", high_contrast)
 
     # binary = cv2.adaptiveThreshold(high_contrast, 500, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 55, 2)
     # binary = cv2.adaptiveThreshold(high_contrast, 500, cv2.ADAPTIVE_THRESH_GAUSSIAN_C , cv2.THRESH_BINARY, 55, 2)
 
     plate_only = cv2.adaptiveThreshold(high_contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 9, 1)
     # plate_only = cv2.threshold(high_contrast, 65, 255, cv2.THRESH_BINARY_INV)
-    cv2.imwrite("./test_pic_plate_only.jpg", plate_only)
+    debug_info("./test_pic_plate_only.jpg", plate_only)
 
     # ret, thresh = cv2.threshold(high_contrast, 162, 255, cv2.THRESH_BINARY_INV)
 
     # ET added
     # blockSize affects large/small plaques (circles in circles)
     # change blockSize based on the AREA
-    block_size = 265
-    if small_plaque:
+    #block_size = 265
+    block_size = 221
+    if small_plaques:
         block_size = 49
 
     thresh = cv2.adaptiveThreshold(high_contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,
                                    block_size, 2)
     # thresh = cv2.adaptiveThreshold(high_contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 49, 2)
-    cv2.imwrite("./test_pic_grey_adapt_thresh.jpg", thresh)
+    debug_info("./test_pic_grey_adapt_thresh.jpg", thresh)
 
     # laplacian = cv2.Laplacian(blur, -1, ksize=17, delta=-50)
     # laplacian = cv2.Laplacian(thresh, cv2.CV_64F)
@@ -105,23 +109,23 @@ def process_image(image, contrast, small_plaque=False):
 
 def get_contours(binary_image):
     contours = cv2.findContours(binary_image, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    contours = cv2.findContours(binary_image.copy(), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    # contours_hierarchy = cv2.findContours(binary_image.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    # contours = cv2.findContours(binary_image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #contours = cv2.findContours(binary_image.copy(), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    #contours = cv2.findContours(binary_image.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    #contours = cv2.findContours(binary_image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     return imutils.grab_contours(contours)
-    # return contours
 
 
 def draw_contours(image, green_df, red_df, other_df, plate_df):
     image_copy = image.copy()
     for index, green in green_df.iterrows():
         draw_one_contour(image_copy, green, (0, 255, 0))
-    # for index, red in red_df.iterrows():
-    #    draw_one_contour(image_copy, red, (0, 0, 255))
-    # for index, other in other_df.iterrows():
-    #   draw_one_contour(image_copy, other, (150, 150, 150))
-    # for index, plate in plate_df.iterrows():
+    #for index, red in red_df.iterrows():
+        #draw_one_contour(image_copy, red, (0, 0, 255))
+    #for index, other in other_df.iterrows():
+        #draw_one_contour(image_copy, other, (200, 150, 150))
+        #draw_one_contour(image_copy, other, (100, 100, 100))
+    #for index, plate in plate_df.iterrows():
     #    draw_one_contour(image_copy, plate, (0, 128, 255))
     return image_copy
 
@@ -134,8 +138,6 @@ def draw_one_contour(image, c_df, color):
     else:
         cx = 0
         cy = 0
-
-    # ET
 
     pd.set_option('display.precision', 2)
     image_w_contours = cv2.drawContours(image, [c_df['HULL']], -1, color, 1)
@@ -166,8 +168,8 @@ def write_images(out_dir, output_image, binary_image, high_contrast_image, image
 
 def write_data(out_dir, image_path, green_df, red_df, other_df):
     write_one_data(out_dir, image_path, 'green', green_df)
-    # write_one_data(out_dir, image_path, 'red', red_df)
-    # write_one_data(out_dir, image_path, 'other', other_df)
+    #write_one_data(out_dir, image_path, 'red', red_df)
+    #write_one_data(out_dir, image_path, 'other', other_df)
 
 
 def write_one_data(out_dir, image_path, prefix, df):
@@ -175,6 +177,7 @@ def write_one_data(out_dir, image_path, prefix, df):
     image_name = os.path.splitext(image_file_name)[0]
     df.to_csv(path_or_buf=f'{out_dir}/data-{prefix}-{image_name}.csv',
               columns=['INDEX_COL', 'AREA_PXL', 'PERIMETER_PXL', 'ENCL_CENTER', 'ENCL_DIAMETER_PXL', 'AREA_MM2', 'ENCL_DIAMETER_MM','MEAN_COLOUR'])
+              #columns=['INDEX_COL', 'AREA_PXL', 'PERIMETER_PXL', 'ENCL_CENTER', 'ENCL_DIAMETER_PXL'])
 
 
 def calc_AREA_PXL_diff(contour_df):
@@ -201,36 +204,54 @@ def filter_contours(contours):
     # df = prepare_df(imutils.grab_contours(contours))
 
     # filter_other = df.apply(lambda x: x['AREA_PXL'] < 100 or x['AREA_PXL'] > 100000, axis=1)
-    filter_other = df.apply(lambda x: x['AREA_PXL'] < 100, axis=1)
-    other_df = df[filter_other]
-    wo_other_df = df[~filter_other]
-    filter_green = wo_other_df.apply(lambda x: x['AREA_PXL'] < 100000 and calc_AREA_PXL_diff(x) < 0.21, axis=1)
-    filter_plate = wo_other_df.apply(lambda x: x['AREA_PXL'] > 100000 and calc_AREA_PXL_diff(x) < 0.21, axis=1)
+    #filter_other = df.apply(lambda x: x['AREA_PXL'] < 100 or (x['AREA_PXL'] > 100 and calc_AREA_PXL_diff(x)) > 0.21, axis=1)
+    #other_df = df[filter_other]
+    #wo_other_df = df[~filter_other]
+
+    if small_plaques:
+        filter_green = df.apply(lambda x: x['AREA_PXL'] < 100000 and x['AREA_PXL'] > 100 and calc_AREA_PXL_diff(x) < 0.21 and x['ENCL_DIAMETER_PXL'] > 15, axis=1)
+    else:
+        filter_green = df.apply(lambda x: x['AREA_PXL'] < 100000 and x['AREA_PXL'] > 100 and calc_AREA_PXL_diff(x) < 0.21 and x['ENCL_DIAMETER_PXL'] > 30, axis=1)
+
+    #filter_green = df.apply(lambda x: x['AREA_PXL'] < 100000 and x['AREA_PXL'] > 100 and calc_AREA_PXL_diff(x) < 0.21, axis=1)
+    filter_plate = df.apply(lambda x: x['AREA_PXL'] > 100000 and calc_AREA_PXL_diff(x) < 0.21, axis=1)
+    filter_red = df.apply(lambda x: x['AREA_PXL'] > 100 and calc_AREA_PXL_diff(x) > 0.21 and x['ENCL_DIAMETER_PXL'] < 30, axis=1)
+    filter_other = df.apply(lambda x: x['AREA_PXL'] < 100 or calc_AREA_PXL_diff(x) > 0.21, axis=1)
+    #filter_other = df.apply(lambda x: calc_AREA_PXL_diff(x) > 0.23, axis=1)
+    #filter_other = df.copy()
     # filter_plate = filter_plate.apply(lambda x: calc_AREA_PXL_diff(x) < 0.21, axis=1)
 
-    green_df = wo_other_df[filter_green]
-    red_df = wo_other_df[~filter_green]
-    plate_df = wo_other_df[filter_plate]
+    green_df = df[filter_green]
+    red_df = df[filter_red]
+    plate_df = df[filter_plate]
+    other_df = df[filter_other]
+
 
     green_df.reset_index()
-    green_df['INDEX_COL'] = green_df.index
+    green_df = reindex(green_df)
 
     red_df.reset_index()
-    red_df['INDEX_COL'] = red_df.index
+    red_df = reindex(red_df)
 
     other_df.reset_index()
-    other_df['INDEX_COL'] = other_df.index
+    other_df = reindex(other_df)
 
     plate_df.reset_index()
-    plate_df['INDEX_COL'] = plate_df.index
+    plate_df = reindex(plate_df)
+
     return green_df, red_df, other_df, plate_df
 
+
+def reindex(df):
+    dfNew = df.copy()
+    dfNew['INDEX_COL'] = df.index
+    return dfNew
 
 def unsharp_mask(image, kernel_size=(3, 3), sigma=1.0, amount=1.0, threshold=0):
     """Return a sharpened version of the image, using an unsharp mask."""
     # ET
-    # blurred = cv2.GaussianBlur(image, kernel_size, sigma)
-    # sharpened = float(amount + 1) * image - float(amount) * blurred
+    blurred = cv2.GaussianBlur(image, kernel_size, sigma)
+    sharpened = float(amount + 1) * image - float(amount) * blurred
     sharpened = float(amount + 1) * image - float(amount) * image
     sharpened = np.maximum(sharpened, np.zeros(sharpened.shape))
     sharpened = np.minimum(sharpened, 255 * np.ones(sharpened.shape))
@@ -241,24 +262,29 @@ def unsharp_mask(image, kernel_size=(3, 3), sigma=1.0, amount=1.0, threshold=0):
     return sharpened
 
 
-def check_duplicates(obj, obj_df):
+def check_duplicate_centers(obj, obj_df):
     for x in obj_df.iterrows():
+
         if obj['INDEX_COL'] != x[0]:
-            close_centers = abs(obj['ENCL_CENTER'][0] - x[1]['ENCL_CENTER'][0]) <= 25
-            close_AREA_PXLs = abs(obj['AREA_PXL'] - x[1]['AREA_PXL']) <= 200
-            #if close_centers is True:
-            #    return True
-            if close_centers is True and close_AREA_PXLs is True:
+            close_centers_x = abs(obj['ENCL_CENTER'][0] - x[1]['ENCL_CENTER'][0]) <= 5
+            close_centers_y = abs(obj['ENCL_CENTER'][1] - x[1]['ENCL_CENTER'][1]) <= 5
+
+            #print("obj encl center x = " + str(obj['ENCL_CENTER'][0]) + ", x encl center x = " + str( x[1]['ENCL_CENTER'][0]))
+            #print("obj encl center y = " + str(obj['ENCL_CENTER'][1]) + ", x encl center y = " + str(x[1]['ENCL_CENTER'][1]))
+
+            #print(str(x[0]) + ", difference 0 " + str(abs(obj['ENCL_CENTER'][0] - x[1]['ENCL_CENTER'][0])) + ", difference 1 " + str(abs(obj['ENCL_CENTER'][1] - x[1]['ENCL_CENTER'][1])))
+
+            if close_centers_x is True and close_centers_y is True:
                 return True
 
-def check_duplicates_diameter(obj, obj_df):
+    return False
+
+def check_duplicate_diameters(obj, obj_df):
     for x in obj_df.iterrows():
         if obj['INDEX_COL'] != x[0]:
-            encl_diameter_pxl_1 = obj['ENCL_DIAMETER_PXL']
-            encl_diameter_pxl_2 = x[1]['ENCL_DIAMETER_PXL']
-            diff = encl_diameter_pxl_1 - encl_diameter_pxl_2
             close_diameter = abs(obj['ENCL_DIAMETER_PXL'] - x[1]['ENCL_DIAMETER_PXL']) <= 25
-            if close_diameter:
+
+            if close_diameter is True:
                 return True
 
 
@@ -278,70 +304,92 @@ def getPlateSize(image):
     # write_images(out_dir_path, output, binary_image, high_contrast, "./out")
 
 
+def check_duplicate_plaques(obj_df):
+    for green in obj_df.iterrows():
+        if check_duplicate_centers(green[1], obj_df):
+            obj_df = obj_df.drop(obj_df[obj_df.index == green[0]].index)
+
+    return obj_df
+
+def check_duplicate_plates(obj_df):
+    for green in obj_df.iterrows():
+        if check_duplicate_diameters(green[1], obj_df):
+            obj_df = obj_df.drop(obj_df[obj_df.index == green[0]].index)
+
+    return obj_df
+
+def calculate_size_mm(plate_size, obj_df, plate_df):
+    if plate_size:
+        max_plate_diameter = plate_df['ENCL_DIAMETER_PXL'].max()
+        pxl_per_mm = float(plate_size) / float(max_plate_diameter)
+        obj_df['ENCL_DIAMETER_MM'] = obj_df.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
+                                                                axis=1)
+        obj_df['AREA_MM2'] = obj_df.apply(lambda x: f"{x['AREA_PXL'] * pxl_per_mm * pxl_per_mm:.2f}",
+                                                        axis=1)
+    else:
+        obj_df['ENCL_DIAMETER_MM'] = 0
+        obj_df['AREA_MM2'] = 0
+
+    return obj_df
+
+def get_brightness( im_file ):
+   im = Image.open(im_file)
+   im.convert('L')
+   stat = ImageStat.Stat(im)
+   return stat.mean[0]
+
 def main():
+    np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
     args = parse_args()
 
     image_paths = get_image_paths(args['image'], args['directory'])
     plate_size = args['plate_size']
+
+    global small_plaques
+    global debug_mode
     small_plaques = args['small_plaque']
-    if small_plaques == 'Y':
-        small_plaques = True
+    debug_mode = args['debug']
+
     for image_path in image_paths:
         print("Processing " + image_path)
+
+        #average image brightness
+        image_brightness = get_brightness(image_path)
+
+        # adjust too bright image
+        if image_brightness > 70:
+            im = Image.open(image_path)
+            enhancer = ImageEnhance.Brightness(im)
+            factor = 0.5
+            im_output = enhancer.enhance(factor)
+            im_output.save(image_path)
+
         image = cv2.imread(image_path)
-        binary_image, high_contrast, clr_high_contrast = process_image(image, 2.5, small_plaques)
+
+        binary_image, high_contrast, clr_high_contrast = process_image(image, 2.5)
         #       cv2.imshow("Binary image", binary_image)
         contours = get_contours(binary_image)
         green_df, red_df, other_df, plate_df = filter_contours(contours)
 
-        # Filter plaques duplicates (circle in circle)
-        # TODO use apply
-        green_df['DUPLICATE'] = False
-        green_df_copy = green_df
-        for green in green_df.iterrows():
-            # green_df_copy['DUPLICATE'][green[0]] = check_duplicates(green[1], green_df)
-            if check_duplicates(green[1], green_df_copy):
-                green_df_copy = green_df_copy.drop(green_df_copy[green_df_copy.index == green[0]].index)
-            # test = green_df['INDEX_COL'].apply(lambda x: check_duplicates(green, x))
+        # Filter plaques duplicates (circle in circle) in valid plaques and plates
+        green_df_copy = green_df.copy()
+        plate_df_copy = plate_df.copy()
+        green_df_copy = check_duplicate_plaques(green_df_copy)
+        plate_df_copy = check_duplicate_plaques(plate_df_copy)
 
-        # remove duplicates from possible plate contours
-        # plate_df['DUPLICATE'] = False
-        plate_df_copy = plate_df
-        for plate in plate_df.iterrows():
-            if (check_duplicates_diameter(plate[1], plate_df_copy)):
-                plate_df_copy = plate_df_copy.drop(plate_df_copy[plate_df_copy.index == plate[0]].index)
+        red_df_copy = red_df.copy()
+        other_df_copy = other_df.copy()
 
-        max_plate_diameter = plate_df_copy['ENCL_DIAMETER_PXL'].max()
-        pxl_per_mm = float(plate_size) / float(max_plate_diameter)
-        # green_df_copy['DIAMETER_MM'] = green_df_copy['ENCL_DIAMETER_PXL']
-        green_df_copy['ENCL_DIAMETER_MM'] = green_df_copy.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
-                                                                axis=1)
-
-        #green_df_copy['AREA_MM2'] = green_df_copy.apply(lambda x: f"{(math.pi * (((float(x['ENCL_DIAMETER_MM']))/2)**2.0)):.2f}",
-        #                                                        axis=1)
-        green_df_copy['AREA_MM2'] = green_df_copy.apply(lambda x: f"{x['AREA_PXL'] * pxl_per_mm * pxl_per_mm:.2f}",
-                                                                axis=1)
-
-        red_df_copy = red_df
-        red_df_copy['ENCL_DIAMETER_MM'] = red_df.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
-                                                       axis=1)
-
-        other_df_copy = other_df
-        other_df_copy['ENCL_DIAMETER_MM'] = other_df.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
-                                                           axis=1)
+        green_df_copy = calculate_size_mm(plate_size, green_df_copy, plate_df)
+        red_df_copy = calculate_size_mm(plate_size, red_df_copy, plate_df)
+        other_df_copy = calculate_size_mm(plate_size, other_df_copy, plate_df)
+        plate_df_copy = calculate_size_mm(plate_size, plate_df_copy, plate_df)
 
         # get Petri dish size and adjust plaques sizes
-        # test mask
-        contours = green_df_copy['CONTOURS']
-        greens_mean_colour = get_mean_grey_colour(high_contrast, contours)
-
-        # for index, c in contours.items():
-        #     contour_mean_colour = get_mean_grey_colour(high_contrast, [c])
-        #     print(f'{index} mean_colour: {contour_mean_colour}')
-
         green_df_copy['MEAN_COLOUR'] = green_df_copy.apply(lambda x: get_mean_grey_colour(high_contrast, x['CONTOURS']),
                                                            axis=1)
-        filter_dev_colour = green_df_copy.apply(lambda x: abs(x['MEAN_COLOUR'] - greens_mean_colour) > 100, axis=1)
+        #Remove extra black contours
+        filter_dev_colour = green_df_copy.apply(lambda x: abs(x['MEAN_COLOUR'] ) < 40, axis=1)
         green_df_copy = green_df_copy[~filter_dev_colour]
 
         # filter_other = df.apply(lambda x: x['MEAN_COLOUR'] < 100, axis=1)
@@ -359,15 +407,13 @@ def main():
         # format float values
         # green_df_copy['ENCL_DIAMETER_MM'] = green_df_copy['ENCL_DIAMETER_MM'].apply(lambda x: f"{x:.2f}")
         write_data(out_dir_path, image_path, green_df_copy, red_df_copy, other_df)
+        print("Process completed successfully")
 
 
-def get_mean_grey_colour(img, contours):
+def get_mean_grey_colour(img, contour):
     contour_mask = np.zeros(img.shape[:2], dtype="uint8")
-    for c in contours:
-        cv2.drawContours(contour_mask, [c], -1, 255, -1)
-
+    contour_mask = cv2.drawContours(contour_mask, [contour], -1, 255, -1)
     mean = cv2.mean(img, contour_mask)
-
     return mean[0]
 
 
