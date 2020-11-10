@@ -12,6 +12,7 @@ imutils = "*"
 opencv-python = "*"
 numpy = "*"
 pandas = "*"
+Pillow = "*"
 
 [requires]
 python_version = "3.6"

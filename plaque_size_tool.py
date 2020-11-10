@@ -319,7 +319,7 @@ def check_duplicate_plates(obj_df):
     return obj_df
 
 def calculate_size_mm(plate_size, obj_df, plate_df):
-    if plate_size:
+    if plate_size and obj_df.size > 0:
         max_plate_diameter = plate_df['ENCL_DIAMETER_PXL'].max()
         pxl_per_mm = float(plate_size) / float(max_plate_diameter)
         obj_df['ENCL_DIAMETER_MM'] = obj_df.apply(lambda x: f"{x['ENCL_DIAMETER_PXL'] * pxl_per_mm:.2f}",
@@ -385,19 +385,16 @@ def main():
         other_df_copy = calculate_size_mm(plate_size, other_df_copy, plate_df)
         plate_df_copy = calculate_size_mm(plate_size, plate_df_copy, plate_df)
 
-        # get Petri dish size and adjust plaques sizes
-        green_df_copy['MEAN_COLOUR'] = green_df_copy.apply(lambda x: get_mean_grey_colour(high_contrast, x['CONTOURS']),
-                                                           axis=1)
-        #Remove extra black contours
-        filter_dev_colour = green_df_copy.apply(lambda x: abs(x['MEAN_COLOUR'] ) < 40, axis=1)
-        green_df_copy = green_df_copy[~filter_dev_colour]
+        if(green_df_copy.size > 0):
+            # get Petri dish size and adjust plaques sizes
+            green_df_copy['MEAN_COLOUR'] = green_df_copy.apply(lambda x: get_mean_grey_colour(high_contrast, x['CONTOURS']),
+                                                               axis=1)
+            #Remove extra black contours
+            filter_dev_colour = green_df_copy.apply(lambda x: abs(x['MEAN_COLOUR'] ) < 40, axis=1)
+            green_df_copy = green_df_copy[~filter_dev_colour]
+        else:
+            green_df_copy['MEAN_COLOUR'] = 0
 
-        # filter_other = df.apply(lambda x: x['MEAN_COLOUR'] < 100, axis=1)
-        # other_df = df[filter_other]
-        # wo_other_df = df[~filter_other]
-        # getPlateSize(clr_high_contrast)
-
-        # green_df_copy = green_df_copy1.applymap("${0:.2f}".format)
         output = draw_contours(clr_high_contrast, green_df_copy, red_df_copy, other_df_copy, plate_df)
 
         if not os.path.exists(out_dir_path):
